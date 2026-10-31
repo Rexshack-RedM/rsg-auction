@@ -1,5 +1,4 @@
 local RSGCore = exports['rsg-core']:GetCoreObject()
-lib.locale()
 local Locale = locale
 
 -- Auction System Server
@@ -79,8 +78,38 @@ local function generateAuctionId()
     return id
 end
 
+-- Citizen IDs never leave the server: every payload sent to clients has them swapped for
+-- opaque per-restart tokens, which are enough for the UI to mark "your auction" / "winning".
+local Tokens = {}
+local function tokenFor(citizenid)
+    local token = Tokens[citizenid]
+    if not token then
+        repeat token = ('P%08x'):format(math.random(0, 0x7fffffff)) until not Tokens[token]
+        Tokens[citizenid] = token
+    end
+    return token
+end
+
+local function scrub(value)
+    if type(value) ~= 'table' then return value end
+    local copy = {}
+    for k, v in pairs(value) do
+        if k == 'citizenid' or k == 'ownerCitizenid' then
+            copy[k] = type(v) == 'string' and tokenFor(v) or nil
+        else
+            copy[k] = scrub(v)
+        end
+    end
+    return copy
+end
+
+-- Sends a scrubbed payload to one client (or -1 for everyone)
+local function sendClient(event, target, data)
+    TriggerClientEvent(event, target, scrub(data))
+end
+
 local function broadcastToAll(action, data)
-    TriggerClientEvent('auction:client:update', -1, { action = action, data = data })
+    sendClient('auction:client:update', -1, { action = action, data = data })
 end
 
 local function getItemImage(itemName)
@@ -312,9 +341,8 @@ end
 
 local function addPlayerItem(src, itemName, count, metadata, reason)
     if not exports['rsg-inventory']:CanAddItem(src, itemName, count) then return false end
-    if not exports['rsg-inventory']:AddItem(src, itemName, count, nil, metadata, reason) then return false end
-    TriggerClientEvent('rsg-inventory:client:ItemBox', src, RSGCore.Shared.Items[itemName], 'add', count)
-    return true
+    -- rsg-inventory AddItem (info before slot) fires the ItemBox itself
+    return exports['rsg-inventory']:AddItem(src, itemName, count, metadata, nil, reason) and true or false
 end
 
 -- ============================================
@@ -383,7 +411,6 @@ local function getPlayerInfo(src)
     if not Player then return nil end
     local charinfo = Player.PlayerData.charinfo
     return {
-        id = src,
         name = charinfo.firstname .. ' ' .. charinfo.lastname,
         citizenid = Player.PlayerData.citizenid
     }
@@ -500,7 +527,7 @@ local function createAuction(src, data)
 
     local count = tonumber(data.count)
     if not count or not isInteger(count) or count < 1 or count > 999 then
-        return { success = false, error = Locale('error_field_positive', 'Count') }
+        return { success = false, error = Locale('error_invalid_count') }
     end
 
     if not CategoryLookup[data.category] then
@@ -564,13 +591,12 @@ local function createAuction(src, data)
         if creationFeeCents > 0 then addPlayerMoney(src, creationFeeCents, 'auction-fee-refund') end
         return { success = false, error = Locale('error_item_remove_failed') }
     end
-    TriggerClientEvent('rsg-inventory:client:ItemBox', src, sharedItem, 'remove', count)
 
     local auctionId = generateAuctionId()
     local now = os.time()
     local auction = {
         id = auctionId,
-        owner = { id = src, name = playerInfo.name, citizenid = playerInfo.citizenid },
+        owner = { name = playerInfo.name, citizenid = playerInfo.citizenid },
         item = {
             name = itemName,
             label = sharedItem.label or itemName, -- label from shared items, never the client
@@ -681,12 +707,11 @@ local function placeBid(src, auctionId, rawAmount)
     funds[playerInfo.citizenid] = bidCents
     local previousBidCents = auction.currentBidCents
     auction.currentBidCents = bidCents
-    auction.highestBidder = { id = src, name = playerInfo.name, citizenid = playerInfo.citizenid }
+    auction.highestBidder = { name = playerInfo.name, citizenid = playerInfo.citizenid }
     auction.totalBids = auction.totalBids + 1
 
     local history = BidHistory[auctionId]
     table.insert(history, 1, {
-        playerId = src,
         playerName = playerInfo.name,
         citizenid = playerInfo.citizenid,
         amountCents = bidCents,
@@ -799,7 +824,6 @@ local function buyoutAuction(src, auctionId)
 
     auction.totalBids = auction.totalBids + 1
     table.insert(BidHistory[auctionId], 1, {
-        playerId = src,
         playerName = playerInfo.name,
         citizenid = playerInfo.citizenid,
         amountCents = priceCents,
@@ -807,7 +831,7 @@ local function buyoutAuction(src, auctionId)
         isBuyout = true
     })
 
-    local winner = { id = src, name = playerInfo.name, citizenid = playerInfo.citizenid }
+    local winner = { name = playerInfo.name, citizenid = playerInfo.citizenid }
     settleSale(auction, winner, priceCents, true)
     persistAuction(auctionId)
     AuctionDB.insertBid(auctionId, BidHistory[auctionId][1])
@@ -965,7 +989,7 @@ RegisterNetEvent('auction:server:getAuctions', function(location)
     if location ~= nil and type(location) ~= 'string' then return end
 
     local list, history = collectActive(function(a) return not location or a.location == location end)
-    TriggerClientEvent('auction:client:receiveAuctions', src, { auctions = list, bidHistory = history, location = location })
+    sendClient('auction:client:receiveAuctions', src, { auctions = list, bidHistory = history, location = location })
 end)
 
 RegisterNetEvent('auction:server:searchAuctions', function(params)
@@ -1006,7 +1030,7 @@ RegisterNetEvent('auction:server:searchAuctions', function(params)
         history[a.id] = BidHistory[a.id]
     end
 
-    TriggerClientEvent('auction:client:receiveSearchResults', src, {
+    sendClient('auction:client:receiveSearchResults', src, {
         auctions = pageResults,
         bidHistory = history,
         pagination = {
@@ -1051,7 +1075,7 @@ RegisterNetEvent('auction:server:createAuction', function(data)
         print(('[Auction] ^1createAuction error: %s^7'):format(tostring(result)))
         result = { success = false, error = Locale('error_invalid_request') }
     end
-    TriggerClientEvent('auction:client:createResult', src, result)
+    sendClient('auction:client:createResult', src, result)
 end)
 
 RegisterNetEvent('auction:server:placeBid', function(auctionId, amount)
@@ -1061,7 +1085,7 @@ RegisterNetEvent('auction:server:placeBid', function(auctionId, amount)
     if not valid then
         return TriggerClientEvent('auction:client:bidResult', src, { success = false, error = err })
     end
-    TriggerClientEvent('auction:client:bidResult', src, withAuctionLock(auctionId, placeBid, src, auctionId, amount))
+    sendClient('auction:client:bidResult', src, withAuctionLock(auctionId, placeBid, src, auctionId, amount))
 end)
 
 RegisterNetEvent('auction:server:buyoutAuction', function(auctionId)
@@ -1071,7 +1095,7 @@ RegisterNetEvent('auction:server:buyoutAuction', function(auctionId)
     if not valid then
         return TriggerClientEvent('auction:client:buyoutResult', src, { success = false, error = err })
     end
-    TriggerClientEvent('auction:client:buyoutResult', src, withAuctionLock(auctionId, buyoutAuction, src, auctionId))
+    sendClient('auction:client:buyoutResult', src, withAuctionLock(auctionId, buyoutAuction, src, auctionId))
 end)
 
 RegisterNetEvent('auction:server:cancelAuction', function(auctionId)
@@ -1158,9 +1182,10 @@ RegisterNetEvent('auction:server:collectMoney', function()
     if not amountCents or amountCents <= 0 then return collectionError(src, 'money', 'error_no_pending_money') end
 
     -- Clear first, then pay; restore on failure. Prevents any double-claim window.
+    local pending = c.money
     c.money = nil
     if not addPlayerMoney(src, amountCents, 'auction-collect') then
-        c.money = { amountCents = amountCents, reason = 'auction-sale' }
+        c.money = pending
         return collectionError(src, 'money', 'error_add_money_failed')
     end
 
@@ -1185,7 +1210,7 @@ RegisterNetEvent('auction:server:validateNPCInteraction', function(data)
 
     -- Server-side proximity check; previously any client could open any town's auction remotely.
     if not getNearbyAuctioneer(src, npc.location) then
-        TriggerClientEvent('ox_lib:notify', src, {
+        TriggerClientEvent('RSGCore:Client:Notify', src, {
             title = Locale('notif_title_auction_house'),
             description = Locale('error_near_auctioneer'),
             type = 'error'
@@ -1195,7 +1220,9 @@ RegisterNetEvent('auction:server:validateNPCInteraction', function(data)
 
     TriggerClientEvent('auction:client:openFromNPC', src, {
         location = npc.location,
-        locationLabel = npc.locationLabel
+        locationLabel = npc.locationLabel,
+        coords = npc.coords,
+        playerToken = tokenFor(getPlayer(src).PlayerData.citizenid)
     })
 end)
 

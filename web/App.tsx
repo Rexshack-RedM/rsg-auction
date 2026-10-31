@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { t } from './locales';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { t, setLocale } from './locales';
 import { isDebug, useNuiEvent, fetchNui } from './hooks/useNui';
 
 // Money formatting utilities - all values are in CENTS
@@ -126,6 +126,46 @@ interface PlayerData {
   categories?: Category[];
   location?: string;
   locationLabel?: string;
+  locale?: Record<string, string>;
+}
+
+// Pure HTML dropdown. Native <select> popups render pixelated in RedM's CEF and can crash the game.
+function Dropdown<T extends string | number>({ value, options, placeholder, onChange }: {
+  value: T | '';
+  options: { value: T; label: string }[];
+  placeholder?: string;
+  onChange: (value: T) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+  const current = options.find(o => o.value === value);
+  return (
+    <div ref={ref} className={`dd ${open ? 'dd-open' : ''}`}>
+      <div className="dd-value" onClick={() => setOpen(o => !o)}>
+        <span className={current ? '' : 'dd-placeholder'}>{current ? current.label : placeholder}</span>
+        <span className="dd-arrow">▾</span>
+      </div>
+      {open && (
+        <div className="dd-menu">
+          {options.map(o => (
+            <div
+              key={String(o.value)}
+              className={`dd-opt ${o.value === value ? 'dd-selected' : ''}`}
+              onMouseDown={(e) => { e.preventDefault(); onChange(o.value); setOpen(false); }}
+            >
+              {o.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface FeeConfig {
@@ -254,9 +294,7 @@ function AsyncImage({
     setLoaded(true);
     setFailed(false);
     imageCache[imageUrl] = { loaded: true, failed: false };
-    
-    // Report to Lua
-    fetchNui('imageLoaded', { url: imageUrl, itemName }, { success: true });
+
   }, [imageUrl, itemName]);
 
   const handleError = useCallback(() => {
@@ -454,7 +492,7 @@ function AuctionCard({
 
       <div className="mt-3 pt-3 border-t border-stone-700/50 flex justify-between text-xs text-stone-500">
         <span>{t('auction.by', auction.owner.name)}</span>
-        <span>{t('auction.bids', auction.totalBids, auction.totalBids !== 1 ? 's' : '')}</span>
+        <span>{t('auction.bids', auction.totalBids)}</span>
       </div>
     </div>
   );
@@ -514,7 +552,7 @@ function AuctionListRow({
         <p className="text-amber-400 font-semibold text-sm">
           {Money.formatWithCommas((auction.currentBidCents || 0) > 0 ? auction.currentBidCents : auction.startingBidCents)}
         </p>
-        <p className="text-stone-500 text-xs">{t('auction.bids', auction.totalBids, auction.totalBids !== 1 ? 's' : '')}</p>
+        <p className="text-stone-500 text-xs">{t('auction.bids', auction.totalBids)}</p>
       </div>
 
       {/* Buyout */}
@@ -789,30 +827,18 @@ function CreateAuctionForm({
               {/* Duration */}
               <div>
                 <label className="block text-stone-300 text-sm mb-2">{t('create.duration')}</label>
-                <select
-                  value={duration}
-                  onChange={(e) => setDuration(parseInt(e.target.value))}
-                  className="w-full bg-stone-800 border border-stone-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-600"
-                >
-                  {durationOptions.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                <Dropdown value={duration} options={durationOptions} onChange={setDuration} />
               </div>
 
               {/* Category */}
               <div>
                 <label className="block text-stone-300 text-sm mb-2">{t('create.category')}</label>
-                <select
+                <Dropdown
                   value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="w-full bg-stone-800 border border-stone-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-600"
-                >
-                  <option value="">{t('create.select_category')}</option>
-                  {categories?.map(cat => (
-                    <option key={cat.id} value={cat.id}>{cat.icon} {cat.label}</option>
-                  ))}
-                </select>
+                  placeholder={t('create.select_category')}
+                  options={(categories || []).map(cat => ({ value: cat.id, label: `${cat.icon} ${cat.label}` }))}
+                  onChange={setSelectedCategory}
+                />
               </div>
 
               {/* Fee Breakdown */}
@@ -1412,6 +1438,7 @@ export default function App() {
 
   // NUI Event Handlers
   useNuiEvent('open', (data: PlayerData) => {
+    setLocale(data.locale);
     setPlayerData(data);
     setVisible(true);
     setView('list');
@@ -2022,7 +2049,7 @@ export default function App() {
                 <div className="flex items-center justify-between text-xs text-stone-500">
                   <span>
                     {pagination.totalCount > 0 
-                      ? t('search.count', pagination.totalCount, pagination.totalCount !== 1 ? 's' : '')
+                      ? t('search.count', pagination.totalCount)
                       : t('search.no_auctions')
                     }
                     {categoryFilter && (

@@ -1,5 +1,4 @@
 local RSGCore = exports['rsg-core']:GetCoreObject()
-lib.locale()
 
 -- Auction System Client
 -- Handles NUI control, inventory snapshot and server communication.
@@ -9,9 +8,22 @@ NUI = {}
 local isOpen = false
 local playerInventory = {}
 local currentLocation = nil
+local currentCoords = nil
+local AUTO_CLOSE_DISTANCE = 6.0 -- UI closes if the player walks away from the auctioneer
+
+-- Only the "ui.*" locale keys are sent to the NUI (built once)
+local uiStrings
+local function getUiStrings()
+    if uiStrings then return uiStrings end
+    uiStrings = {}
+    for key, value in pairs(locale() or {}) do
+        if key:sub(1, 3) == 'ui.' then uiStrings[key:sub(4)] = value end
+    end
+    return uiStrings
+end
 
 local function notify(description, nType, title)
-    lib.notify({
+    RSGCore.Functions.Notify({
         title = title or locale('notif_title_auction_house'),
         description = description,
         type = nType or 'inform',
@@ -77,6 +89,7 @@ function NUI.Open(data)
 
     isOpen = true
     currentLocation = data and data.location
+    currentCoords = data and data.coords
 
     local categories = {}
     for _, cat in ipairs(Config.Categories or {}) do
@@ -91,7 +104,8 @@ function NUI.Open(data)
         inventory = refreshInventory(),
         cashCents = Money.dollarsToCents(money.cash or 0),
         bankCents = Money.dollarsToCents(money.bank or 0),
-        citizenid = data and data.playerToken or '', -- opaque per-server token, matches the IDs in auction data
+        citizenid = data and data.playerToken or '', -- opaque server token matching the IDs in auction data
+        locale = getUiStrings(),
         playerName = charinfo and (charinfo.firstname .. ' ' .. charinfo.lastname) or 'Unknown',
         feeConfig = Config.CreationFee or {},
         buyoutConfig = Config.Buyout or { enabled = false, minMultiplier = 1.5 },
@@ -106,6 +120,20 @@ function NUI.Open(data)
 
     TriggerServerEvent('auction:server:getAuctions', currentLocation)
     TriggerServerEvent('auction:server:getPendingCollections')
+
+    -- Close automatically if the player walks off or dies with the UI open
+    if currentCoords then
+        CreateThread(function()
+            while isOpen do
+                local ped = PlayerPedId()
+                if IsEntityDead(ped) or #(GetEntityCoords(ped) - currentCoords) > AUTO_CLOSE_DISTANCE then
+                    NUI.Close()
+                    break
+                end
+                Wait(1000)
+            end
+        end)
+    end
 end
 
 function NUI.Close()
@@ -113,10 +141,6 @@ function NUI.Close()
     isOpen = false
     SetNuiFocus(false, false)
     NUI.SendMessage('close')
-end
-
-function NUI.IsOpen()
-    return isOpen
 end
 
 -- ============================================
@@ -204,7 +228,6 @@ end)
 local passthrough = {
     getPendingCollections = function() TriggerServerEvent('auction:server:getPendingCollections') end,
     collectMoney = function() TriggerServerEvent('auction:server:collectMoney') end,
-    imageLoaded = function() end,
     imageFailed = function(data)
         if Config.Debug and data and data.itemName then
             TriggerServerEvent('auction:server:reportMissingImage', data.itemName)
@@ -263,8 +286,7 @@ RegisterNetEvent('auction:client:collectionResult', function(result)
     if result.success and result.type == 'item' then pushInventory() end
 end)
 
--- Auction events: shown in the NUI when it's open, otherwise as an ox_lib notification
--- (previously both fired at once, giving duplicate toasts).
+-- Auction events: shown in the NUI when it's open, otherwise as an rsg-core notification.
 RegisterNetEvent('auction:client:notification', function(data)
     if type(data) ~= 'table' then return end
     if isOpen then
@@ -300,6 +322,7 @@ end)
 -- Close the UI cleanly if the resource restarts while it's open
 AddEventHandler('onResourceStop', function(resourceName)
     if resourceName == GetCurrentResourceName() and isOpen then
+        isOpen = false
         SetNuiFocus(false, false)
     end
 end)

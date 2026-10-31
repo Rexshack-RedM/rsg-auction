@@ -170,49 +170,13 @@ Config = {
         },
     },
 
-    -- NPC Interaction Settings (ox_target)
+    -- NPC Interaction Settings (rsg-target)
     InteractionDistance = 2.5,      -- Max distance to target NPC
     
     -- Notification Settings
     NotificationDuration = 5000, -- How long notifications show (ms)
-    
-    
+    NpcSpawnDistance = 60.0,     -- Auctioneer peds spawn within this range of the player
+
     -- Debug
     Debug = false,
-    
-    -- Discord Webhooks
-    Webhooks = {
-        -- Default webhook URL (used if event-specific URL not set)
-        -- Set to your Discord webhook URL, e.g., 'https://discord.com/api/webhooks/...'
-        defaultUrl = nil,
-        
-        -- Event-specific webhook URLs (optional, overrides defaultUrl)
-        urls = {
-            auctionCreated = nil,     -- New auctions
-            bidPlaced = nil,          -- Bid notifications (can be spammy)
-            auctionWon = nil,         -- Auction winners
-            auctionExpired = nil,     -- Expired auctions (no bids)
-            auctionCancelled = nil,   -- Cancelled auctions
-            auctionBuyout = nil,      -- Buyouts
-            highValueSale = nil,      -- High value alerts
-        },
-        
-        -- Enable/disable specific webhook types
-        enabled = {
-            auctionCreated = true,
-            bidPlaced = false,        -- Off by default (can be spammy)
-            auctionWon = true,
-            auctionBuyout = true,
-            auctionExpired = true,
-            auctionCancelled = true,
-            highValueSale = true,
-        },
-        
-        -- High value threshold (triggers additional highValueSale webhook)
-        highValueThreshold = 1000,
-        
-        -- Bot appearance in Discord
-        botName = 'Auction House',
-        botAvatar = nil,  -- Set to an image URL for custom avatar
-    }
 }

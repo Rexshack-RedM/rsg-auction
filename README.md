@@ -17,7 +17,9 @@ A real-time, town-based auction house for RedM servers running the **RSG Framewo
 - **Login reminders**: players are told on login if they have items or money waiting.
 - **Discord webhooks**: optional embeds for created, bid, won, buyout, expired, cancelled and high-value sales, with admin commands to manage them in-game.
 - **MySQL persistence**: auctions, bids, pending collections and payouts are stored in the database (oxmysql). Tables are created automatically, timers resume after restarts, and finished auctions are pruned after a configurable number of days.
-- **RDR2 leather & gold UI**: a dark monochrome React interface with ox_lib notifications and full locale support.
+- **RDR2 leather & gold UI**: a dark monochrome React interface with custom (non-native) dropdowns, rsg-core notifications and full translations.
+- **10 languages**: en, de, el, es, fr, ja, nl, pl, pt-br, ro (game text *and* UI).
+- **Auto-close**: the UI closes if the player walks away from the auctioneer or dies.
 
 ### Security
 
@@ -27,7 +29,8 @@ All money and item handling happens on the server:
 - Every action (create, bid, buyout, cancel, collect, open) is checked server-side against the player's distance to the right auctioneer.
 - Amounts are integer cents, validated and capped (`Config.MaxPrice`).
 - Per-action rate limits, per-auction locks to stop race conditions, an item blacklist, and a max active auctions per player.
-- Players' citizen IDs and server IDs are never sent to other clients. The UI only sees opaque per-restart tokens, enough to mark "your auction" and "winning" and nothing more.
+- Players' citizen IDs and server IDs are never sent to clients. Every payload is scrubbed and the UI only sees opaque per-restart tokens, enough to mark "your auction" and "winning" and nothing more.
+- Discord webhook URLs live in `server/sv_config.lua`, which is never sent to clients.
 
 ---
 
@@ -38,8 +41,7 @@ All money and item handling happens on the server:
 | [rsg-core](https://github.com/Rexshack-RedM/rsg-core) | Framework |
 | [rsg-inventory](https://github.com/Rexshack-RedM/rsg-inventory) | Item add/remove and item images |
 | [oxmysql](https://github.com/overextended/oxmysql) | Database |
-| [ox_lib](https://github.com/overextended/ox_lib) | Locales, notifications, points |
-| [ox_target](https://github.com/overextended/ox_target) | NPC interaction |
+| [rsg-target](https://github.com/Rexshack-RedM/rsg-target) | NPC interaction |
 
 ---
 
@@ -49,14 +51,13 @@ All money and item handling happens on the server:
 2. Make sure the dependencies start **before** it in your `server.cfg`:
    ```cfg
    ensure oxmysql
-   ensure ox_lib
-   ensure ox_target
    ensure rsg-core
+   ensure rsg-target
    ensure rsg-inventory
    ensure rsg-auction
    ```
-3. Database: the tables are created automatically on first start. If you'd rather create them yourself, run `rsg-auction.sql` against your server database.
-4. Adjust `config.lua` to suit your server (see below).
+3. Database: the tables are created automatically on first start. If you'd rather create them yourself, run `installation/rsg-auction.sql` against your server database.
+4. Adjust `shared/config.lua` (gameplay) and `server/sv_config.lua` (webhooks) to suit your server (see below).
 5. Restart the server.
 
 > **Updating from a version that used `auctions.json`:** on the first start the file is imported into the database automatically. The original is kept as `auctions.json.bak`, and `auctions.json` is marked as imported so it is never imported twice. Back up both your database and `auctions.json` before updating.
@@ -67,7 +68,7 @@ The compiled UI ships in `web/dist`, so you only need this if you change the Rea
 
 ```bash
 cd web
-npm install
+npm ci
 npm run build
 ```
 
@@ -75,7 +76,7 @@ npm run build
 
 ## Configuration
 
-All settings are in `config.lua`.
+Gameplay settings are in `shared/config.lua`; webhook settings are in `server/sv_config.lua`.
 
 ### Auction settings
 
@@ -88,8 +89,9 @@ All settings are in `config.lua`.
 | `MaxAuctionsPerPlayer` | `10` | Active listings per character |
 | `MinBidIncrement` | `0.05` | Minimum raise over the current bid (5%) |
 | `HistoryRetentionDays` | `7` | Finished auctions are removed from the save after this long |
-| `InteractionDistance` | `2.5` | ox_target distance to auctioneers |
-| `NotificationDuration` | `5000` | ox_lib notification duration (ms) |
+| `InteractionDistance` | `2.5` | rsg-target distance to auctioneers |
+| `NpcSpawnDistance` | `60.0` | Auctioneer peds spawn within this range of the player |
+| `NotificationDuration` | `5000` | Notification duration (ms) |
 | `Debug` | `false` | Extra console logging |
 
 ### Anti-snipe
@@ -174,10 +176,10 @@ AuctioneerNPCs = {
 
 NPCs only spawn when a player is nearby. Every auctioneer gets a map blip.
 
-### Discord webhooks
+### Discord webhooks (`server/sv_config.lua`)
 
 ```lua
-Webhooks = {
+SvConfig.Webhooks = {
     defaultUrl = 'https://discord.com/api/webhooks/...', -- used when no event URL is set
     urls = {
         auctionCreated = nil, bidPlaced = nil, auctionWon = nil, auctionBuyout = nil,
@@ -188,16 +190,18 @@ Webhooks = {
         auctionExpired = true, auctionCancelled = true, highValueSale = true,
     },
     highValueThreshold = 1000, -- dollars; sales at or above this also go to highValueSale
+    maxRetries = 3,
+    retryDelay = 1000,
     botName = 'Auction House',
     botAvatar = nil,
-},
+}
 ```
 
 Only `https://discord.com/api/webhooks/` URLs are accepted. Failed sends are retried 3 times, then logged to `webhook_errors.log`.
 
 ### Locales
 
-Game text is in `locales/en.json` (ox_lib format). UI text is in `web/locales.ts` (rebuild the UI after editing it). To add a language, copy `en.json` to e.g. `de.json`, translate it, and set `setr ox:locale de` in your `server.cfg`.
+All text, game and UI, lives in `locales/<lang>.json` (rsg-core locale loader, ox_lib-compatible JSON). Keys starting with `ui.` are sent to the NUI when it opens, so translations need **no UI rebuild**; `web/locales.ts` only holds the English fallback. Shipped languages: `en`, `de`, `el`, `es`, `fr`, `ja`, `nl`, `pl`, `pt-br`, `ro`. Pick one with `setr rsg:locale "de"` in your `server.cfg`.
 
 ---
 
@@ -205,7 +209,7 @@ Game text is in `locales/en.json` (ox_lib format). UI text is in `web/locales.ts
 
 ### Players
 
-1. **Find an auctioneer**: look for the auction blip in any configured town and use **ox_target** on the NPC to open the auction house.
+1. **Find an auctioneer**: look for the auction blip in any configured town and use **rsg-target** on the NPC to open the auction house.
 2. **Browse**: filter by category, search, or switch to *My Auctions*. Click an auction for details and bid history.
 3. **Create an auction**: choose *Create Auction*, pick an item from your inventory (each stack is listed separately, so you choose exactly which one, e.g. which revolver; blacklisted items aren't shown), set the quantity, category, starting bid, duration and an optional buyout price. The listing fee is shown before you confirm. The item is taken from your inventory and held until the auction ends.
 4. **Bid**: enter an amount (at least the minimum shown, or press *Min*) and place your bid. The money is held immediately. If you're outbid it's refunded automatically. Raising your own bid only charges the difference.
@@ -223,7 +227,7 @@ Money is taken from **cash first, then bank**. Earnings and refunds are paid to 
 | `auctionwebhooktoggle <event> <true/false>` | Enable or disable an event's webhook |
 | `auctionwebhookstatus` | Show the current webhook setup |
 
-Runtime webhook changes reset on restart. Put permanent values in `config.lua`.
+Runtime webhook changes reset on restart. Put permanent values in `server/sv_config.lua`.
 
 ---
 
@@ -244,7 +248,7 @@ The server keeps live state in memory and writes every change to the database in
 
 | File | Purpose |
 |---|---|
-| `rsg-auction.sql` | Optional manual table creation |
+| `installation/rsg-auction.sql` | Optional manual table creation |
 | `webhook_errors.log` | Webhook sends that failed after all retries |
 | `auctions.json.bak` | Backup of the old JSON save, only present if one was imported |
 
@@ -253,3 +257,5 @@ The server keeps live state in memory and writes every change to the database in
 ## Credits
 
 Created by **RexShack** for the RSG Framework community.
+
+Support: https://buymeacoffee.com/rexshack

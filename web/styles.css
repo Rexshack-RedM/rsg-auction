@@ -255,3 +255,16 @@ input[type="number"] { -moz-appearance: textfield; }
 
 /* Secondary/descriptive text */
 .rdr-desc { font-style: italic; color: var(--rdr-muted); }
+
+/* Custom dropdown (never native <select> in RedM NUI) */
+.dd { position: relative; width: 100%; background: rgba(0,0,0,0.35); border: 1px solid var(--rdr-gold-dim); border-radius: 2px; color: var(--rdr-text); font-size: 14px; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.dd-open { border-color: var(--rdr-gold); box-shadow: 0 0 0 2px rgba(201,162,75,0.15); }
+.dd-value { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; cursor: pointer; }
+.dd-placeholder { color: var(--rdr-muted); font-style: italic; }
+.dd-arrow { color: var(--rdr-muted); transition: transform 0.15s ease; }
+.dd-open .dd-arrow { transform: rotate(180deg); }
+.dd-menu { position: absolute; left: -1px; right: -1px; top: calc(100% + 2px); z-index: 50; max-height: 200px; overflow-y: auto; background: linear-gradient(160deg, var(--rdr-panel-2), var(--rdr-panel) 60%, var(--rdr-black)); border: 1px solid var(--rdr-gold-dim); box-shadow: 0 10px 30px var(--rdr-shadow); }
+.dd-menu::-webkit-scrollbar { width: 4px; }
+.dd-opt { padding: 7px 12px; color: var(--rdr-muted); border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; transition: all 0.15s ease; }
+.dd-opt:hover { color: var(--rdr-text); background: rgba(255,255,255,0.04); padding-left: 16px; }
+.dd-selected { color: var(--rdr-text); font-weight: 500; }

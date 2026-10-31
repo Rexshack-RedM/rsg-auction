@@ -1,16 +1,24 @@
-lib.locale()
 
 -- Auctioneer NPCs
--- Blips are always shown; peds are only spawned while the player is nearby (lib.points),
--- instead of keeping every auctioneer alive map-wide with a polling loop.
+-- Blips are always shown; peds are only spawned while the player is nearby.
 
-local SPAWN_DISTANCE = 60.0
 local TARGET_OPTION_NAME = 'auction_npc_interact'
 local BLIP_SPRITE = `blip_shop_store`
 local BLIP_COLOR_MODIFIER = `BLIP_MODIFIER_MP_COLOR_5`
 
 local Peds = {}   -- [index] = ped
 local Blips = {}  -- [index] = blip
+
+local function loadModel(model, timeout)
+    if HasModelLoaded(model) then return true end
+    RequestModel(model)
+    local deadline = GetGameTimer() + (timeout or 10000)
+    while not HasModelLoaded(model) do
+        if GetGameTimer() > deadline then return false end
+        Wait(50)
+    end
+    return true
+end
 
 local function createBlip(npc)
     local blip = BlipAddForCoords(1664425300, npc.coords.x, npc.coords.y, npc.coords.z)
@@ -25,7 +33,7 @@ local function spawnPed(index, npc)
     if Peds[index] and DoesEntityExist(Peds[index]) then return end
 
     local model = joaat(npc.model)
-    if not lib.requestModel(model, 10000) then
+    if not loadModel(model, 10000) then
         print(('[Auction NPC] Failed to load model: %s'):format(npc.model))
         return
     end
@@ -40,7 +48,7 @@ local function spawnPed(index, npc)
     SetBlockingOfNonTemporaryEvents(ped, true)
     SetPedCanBeTargetted(ped, false)
 
-    exports.ox_target:addLocalEntity(ped, {
+    exports['rsg-target']:addLocalEntity(ped, {
         {
             name = TARGET_OPTION_NAME,
             label = npc.name or locale('target_open_auction'),
@@ -58,7 +66,7 @@ end
 local function despawnPed(index)
     local ped = Peds[index]
     if ped and DoesEntityExist(ped) then
-        exports.ox_target:removeLocalEntity(ped, TARGET_OPTION_NAME)
+        exports['rsg-target']:removeLocalEntity(ped, TARGET_OPTION_NAME)
         DeleteEntity(ped)
     end
     Peds[index] = nil
@@ -66,13 +74,24 @@ end
 
 for index, npc in ipairs(Config.AuctioneerNPCs or {}) do
     Blips[index] = createBlip(npc)
-    lib.points.new({
-        coords = npc.coords,
-        distance = SPAWN_DISTANCE,
-        onEnter = function() spawnPed(index, npc) end,
-        onExit = function() despawnPed(index) end,
-    })
 end
+
+-- Distance-gated spawn loop: checks every 1.5s, never per frame.
+CreateThread(function()
+    local spawnDistance = Config.NpcSpawnDistance or 60.0
+    while true do
+        local coords = GetEntityCoords(PlayerPedId())
+        for index, npc in ipairs(Config.AuctioneerNPCs or {}) do
+            local near = #(coords - npc.coords) <= spawnDistance
+            if near and not Peds[index] then
+                spawnPed(index, npc)
+            elseif not near and Peds[index] then
+                despawnPed(index)
+            end
+        end
+        Wait(1500)
+    end
+end)
 
 RegisterNetEvent('auction:client:openFromNPC', function(locationData)
     NUI.Open(locationData)

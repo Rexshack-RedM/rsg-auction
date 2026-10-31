@@ -1,47 +1,18 @@
 local RSGCore = exports['rsg-core']:GetCoreObject()
-lib.locale()
 local Locale = locale
 
 -- Discord Webhook System
 -- Handles HTTP POST to Discord webhooks with retry logic and formatted embeds
 
-local WebhookConfig = {
-    -- Default webhook URL (can be overridden per event type)
-    defaultUrl = nil,
-    
-    -- Event-specific webhook URLs
-    urls = {
-        auctionCreated = nil,
-        bidPlaced = nil,
-        auctionWon = nil,
-        auctionBuyout = nil,
-        auctionExpired = nil,
-        auctionCancelled = nil,
-        highValueSale = nil,  -- Optional: for high-value transactions
-    },
-
-    -- Event toggles
-    enabled = {
-        auctionCreated = true,
-        bidPlaced = false,    -- Off by default (can be spammy)
-        auctionWon = true,
-        auctionBuyout = true,
-        auctionExpired = true,
-        auctionCancelled = true,
-        highValueSale = true,
-    },
-    
-    -- High value threshold (triggers highValueSale webhook)
-    highValueThreshold = 1000,
-    
-    -- Retry settings
-    maxRetries = 3,
-    retryDelay = 1000,  -- ms between retries
-    
-    -- Bot appearance
-    botName = 'Auction House',
-    botAvatar = nil,  -- Set via Config.Webhooks.botAvatar; leaving nil uses Discord's default avatar
-}
+-- Settings live in server/sv_config.lua (server-only, so URLs are never sent to clients).
+-- Runtime changes from the admin commands below are kept in memory until restart.
+local WebhookConfig = SvConfig.Webhooks
+WebhookConfig.urls = WebhookConfig.urls or {}
+WebhookConfig.enabled = WebhookConfig.enabled or {}
+WebhookConfig.highValueThreshold = WebhookConfig.highValueThreshold or 1000
+WebhookConfig.maxRetries = WebhookConfig.maxRetries or 3
+WebhookConfig.retryDelay = WebhookConfig.retryDelay or 1000
+WebhookConfig.botName = WebhookConfig.botName or 'Auction House'
 
 -- ============================================
 -- UTILITY FUNCTIONS
@@ -314,7 +285,7 @@ function SendWebhook(eventType, data)
 end
 
 -- Configure webhook URL at runtime
-function SetWebhookUrl(eventType, url)
+local function SetWebhookUrl(eventType, url)
     -- Validate URL
     local valid, err = isValidWebhookUrl(url)
     if not valid then
@@ -332,7 +303,7 @@ function SetWebhookUrl(eventType, url)
 end
 
 -- Get current webhook configuration
-function GetWebhookConfig()
+local function GetWebhookConfig()
     return {
         defaultUrl = WebhookConfig.defaultUrl,
         urls = WebhookConfig.urls,
@@ -342,7 +313,7 @@ function GetWebhookConfig()
 end
 
 -- Toggle webhook for event type
-function ToggleWebhook(eventType, enabled)
+local function ToggleWebhook(eventType, enabled)
     if WebhookConfig.enabled[eventType] ~= nil then
         WebhookConfig.enabled[eventType] = enabled
         return true
@@ -350,67 +321,17 @@ function ToggleWebhook(eventType, enabled)
     return false, Locale('error_webhook_config_invalid')
 end
 
--- Set high value threshold
-function SetHighValueThreshold(amount)
-    if type(amount) == 'number' and amount >= 0 then
-        WebhookConfig.highValueThreshold = amount
-        return true
-    end
-    return false, Locale('error_invalid_threshold')
-end
-
--- ============================================
--- CONFIG LOADING
--- ============================================
-
--- Load webhook config from main Config if available
-function LoadWebhookConfig()
-    if Config and Config.Webhooks then
-        if Config.Webhooks.defaultUrl and isValidWebhookUrl(Config.Webhooks.defaultUrl) then
-            WebhookConfig.defaultUrl = Config.Webhooks.defaultUrl
-        end
-        
-        if Config.Webhooks.urls then
-            for eventType, url in pairs(Config.Webhooks.urls) do
-                if WebhookConfig.enabled[eventType] ~= nil and isValidWebhookUrl(url) then
-                    WebhookConfig.urls[eventType] = url
-                end
-            end
-        end
-        
-        if Config.Webhooks.enabled then
-            for eventType, enabled in pairs(Config.Webhooks.enabled) do
-                if WebhookConfig.enabled[eventType] ~= nil then
-                    WebhookConfig.enabled[eventType] = enabled
-                end
-            end
-        end
-        
-        if Config.Webhooks.highValueThreshold then
-            WebhookConfig.highValueThreshold = Config.Webhooks.highValueThreshold
-        end
-        
-        if Config.Webhooks.botName then
-            WebhookConfig.botName = Config.Webhooks.botName
-        end
-        
-        if Config.Webhooks.botAvatar then
-            WebhookConfig.botAvatar = Config.Webhooks.botAvatar
-        end
-        
-        if Config.Debug then
-            print('[Webhook] Configuration loaded from Config')
-        end
+-- Drop any invalid URLs from the config at startup
+for eventType, url in pairs(WebhookConfig.urls) do
+    if not isValidWebhookUrl(url) then
+        print(('[Webhook] ^3Ignoring invalid URL for %s^7'):format(eventType))
+        WebhookConfig.urls[eventType] = nil
     end
 end
-
--- Load on resource start
-AddEventHandler('onResourceStart', function(resourceName)
-    if GetCurrentResourceName() == resourceName then
-        LoadWebhookConfig()
-        print('[Webhook System] Initialized')
-    end
-end)
+if WebhookConfig.defaultUrl and not isValidWebhookUrl(WebhookConfig.defaultUrl) then
+    print('[Webhook] ^3Ignoring invalid default URL^7')
+    WebhookConfig.defaultUrl = nil
+end
 
 -- ============================================
 -- ADMIN COMMANDS

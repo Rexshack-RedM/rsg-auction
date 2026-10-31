@@ -24,7 +24,7 @@ const locale: Record<string, string> = {
   'search.no_results': 'No auctions match your search',
   'search.no_auctions': 'No auctions available',
   'search.create_first': 'Create First Auction',
-  'search.count': '%d auction%s found',
+  'search.count': 'Auctions found: %d',
   'search.page': 'Page %d of %d',
   'search.in_category': 'in %s',
   'search.for_query': ' for "%s"',
@@ -43,7 +43,7 @@ const locale: Record<string, string> = {
   'auction.ends_in': 'Ends In',
   'auction.buy_now': 'Buy Now',
   'auction.by': 'By %s',
-  'auction.bids': '%d bid%s',
+  'auction.bids': 'Bids: %d',
   'auction.ended': 'Ended',
   'auction.won_for': 'Won for %s',
   'auction.seller': 'Seller: %s',
@@ -175,8 +175,14 @@ const locale: Record<string, string> = {
   'category.title': 'Categories',
 };
 
+// Translations sent from Lua (locales/<lang>.json "ui.*" keys) override the English defaults above.
+let overrides: Record<string, string> = {};
+export function setLocale(strings?: Record<string, string>) {
+  if (strings && typeof strings === 'object') overrides = strings;
+}
+
 export function t(key: string, ...args: (string | number)[]): string {
-  let str = locale[key];
+  let str = overrides[key] ?? locale[key];
   if (str === undefined) {
     console.warn(`[Auction] Missing locale key: ${key}`);
     return key;

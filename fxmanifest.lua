@@ -5,7 +5,7 @@ lua54 'yes'
 
 author 'RexShack'
 description 'Real-time auction system for RSG Framework'
-version '3.0.0'
+version '3.1.0'
 
 ui_page 'web/dist/index.html'
 
@@ -15,7 +15,7 @@ files {
 }
 
 shared_scripts {
-    '@ox_lib/init.lua',
+    '@rsg-core/shared/locale.lua',
     'shared/config.lua',
     'shared/money.lua'
 }
@@ -27,6 +27,7 @@ client_scripts {
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
+    'server/sv_config.lua',
     'server/database.lua',
     'server/webhooks.lua',
     'server/main.lua',
@@ -36,7 +37,6 @@ server_scripts {
 dependencies {
     'rsg-core',
     'rsg-inventory',
-    'oxmysql',
-    'ox_lib',
-    'ox_target'
+    'rsg-target',
+    'oxmysql'
 }
