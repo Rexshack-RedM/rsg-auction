@@ -95,4 +95,4 @@ Everything is validated on the server: distance to an auctioneer, ownership and 
 | Money missing | Collect it at an auctioneer (`collectMoney`) |
 | No Discord posts | Configure `server/sv_config.lua`; check `/auctionwebhookstatus` |
 
-Support: https://buymeacoffee.com/rexshack
+Support the Project : https://rexshack.tebex.store/
